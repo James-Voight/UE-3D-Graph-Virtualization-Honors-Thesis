@@ -1,0 +1,25 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "1.0.0",
+  "FriendlyName": "VR Data Visualization",
+  "Description": "In-world 3D UI panel and data loading utilities for runtime chart visualization.",
+  "Category": "VR, UI, Data",
+  "CreatedBy": "Honors Thesis",
+  "CreatedByURL": "https://example.com",
+  "DocsURL": "",
+  "Modules": [
+    {
+      "Name": "VRDataViz",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [],
+  "EnabledByDefault": true,
+  "CanContainContent": false,
+  "IsBetaVersion": false,
+  "Installed": false,
+  "SupportsEngineVersions": true
+}
+
