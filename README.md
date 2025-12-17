@@ -9,7 +9,7 @@ This project is developed as part of an **Honors Thesis** focused on 3D visualiz
 ## 📸 Screenshots
 
 ### World-Space UI + Scatterplot Example
-![UIPanel Scatterplot](image/scatterimage.png)
+![UIPanel Scatterplot](images/scatterimage.png)
 
 ### UIPanel Blueprint Setup
 ![UIPanel Blueprint](images/UIPanelEventGraph.png)
