@@ -11,7 +11,7 @@ AWorldUIPanelActor::AWorldUIPanelActor()
     SetRootComponent(WidgetComponent);
 
     WidgetComponent->SetWidgetSpace(EWidgetSpace::World);
-    WidgetComponent->SetDrawSize(FVector2D(1200.0f, 900.0f)); // Increased size to fit all buttons
+    WidgetComponent->SetDrawSize(FVector2D(1200.0f, 1400.0f)); // Increased height to fit all controls
     WidgetComponent->SetPivot(FVector2D(0.5f, 0.5f));
     WidgetComponent->SetTwoSided(true);
     WidgetComponent->SetCollisionEnabled(ECollisionEnabled::QueryOnly);

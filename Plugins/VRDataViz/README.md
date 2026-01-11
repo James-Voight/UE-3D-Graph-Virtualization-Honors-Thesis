@@ -26,7 +26,7 @@ In-world 3D UI panel and data loading utilities for runtime chart visualization 
 
 ## Customization
 - At runtime you can adjust charts via `UChartAdjustLibrary`:
-  - `SetActorScale(ChartActor, NewUnitScale)` – scales chart extents.
+  - `SetActorScale(ChartActor, NewScale)` – scales chart extents.
   - `SetActorRotation(ChartActor, NewRotation)` – rotates drawing.
   - `SetAxisRanges(ChartActor, bUseCustom, XMin, XMax, YMin, YMax, ZMin, ZMax)` – remap data domain, e.g., Z 0–1 or -100–100.
   - After updates, actors rebuild automatically.

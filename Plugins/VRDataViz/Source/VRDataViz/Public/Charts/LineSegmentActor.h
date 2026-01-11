@@ -4,6 +4,8 @@
 #include "GameFramework/Actor.h"
 #include "LineSegmentActor.generated.h"
 
+class AStaticMeshActor;
+
 UCLASS()
 class VRDATAVIZ_API ALineSegmentActor : public AActor
 {
@@ -17,12 +19,15 @@ public:
 
 protected:
     virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
     void SpawnCylinderGeometry();
 
     UPROPERTY()
     UStaticMesh* CylinderMesh;
+    UPROPERTY()
+    AStaticMeshActor* SegmentMeshActor = nullptr;
 
     FVector Start;
     FVector End;

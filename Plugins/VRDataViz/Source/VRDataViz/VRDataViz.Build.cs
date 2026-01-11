@@ -18,7 +18,8 @@ public class VRDataViz : ModuleRules
 
         PrivateDependencyModuleNames.AddRange(new string[]
         {
-            "InputCore"
+            "InputCore",
+            "HeadMountedDisplay"
         });
     }
 }

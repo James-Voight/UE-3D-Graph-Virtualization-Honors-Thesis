@@ -5,9 +5,9 @@
 
 void UChartAdjustLibrary::SetActorScale(AActor* ChartActor, const FVector& NewUnitScale)
 {
-    if (ABarChartActor* A = Cast<ABarChartActor>(ChartActor)) { A->UnitScale = NewUnitScale; A->Rebuild(); return; }
-    if (ALineGraphActor* A = Cast<ALineGraphActor>(ChartActor)) { A->GraphSize = NewUnitScale; A->Rebuild(); return; }
-    if (AScatterActor* A = Cast<AScatterActor>(ChartActor)) { A->UnitScale = NewUnitScale; A->Rebuild(); return; }
+    if (ABarChartActor* A = Cast<ABarChartActor>(ChartActor)) { A->GraphScale = NewUnitScale; A->Rebuild(); return; }
+    if (ALineGraphActor* A = Cast<ALineGraphActor>(ChartActor)) { A->GraphScale = NewUnitScale; A->Rebuild(); return; }
+    if (AScatterActor* A = Cast<AScatterActor>(ChartActor)) { A->GraphScale = NewUnitScale; A->Rebuild(); return; }
 }
 
 void UChartAdjustLibrary::SetActorRotation(AActor* ChartActor, const FRotator& NewRotation)
@@ -41,4 +41,3 @@ void UChartAdjustLibrary::SetAxisRanges(AActor* ChartActor, bool bUseCustom, flo
         return;
     }
 }
-

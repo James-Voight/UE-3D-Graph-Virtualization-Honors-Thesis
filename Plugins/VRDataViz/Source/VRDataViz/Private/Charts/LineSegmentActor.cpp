@@ -1,21 +1,23 @@
 #include "Charts/LineSegmentActor.h"
-#include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "Engine/StaticMeshActor.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SceneComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Math/RotationMatrix.h"
 
 ALineSegmentActor::ALineSegmentActor()
 {
     PrimaryActorTick.bCanEverTick = false;
+    RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+    RootComponent->SetMobility(EComponentMobility::Movable);
     Start = FVector::ZeroVector;
     End = FVector::ZeroVector;
     Color = FLinearColor::Red;
     Thickness = 2.0f;
 
-    // Load cylinder mesh in constructor
     static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderMeshAsset(TEXT("/Engine/BasicShapes/Cylinder"));
     if (CylinderMeshAsset.Succeeded())
     {
@@ -30,57 +32,69 @@ void ALineSegmentActor::InitializeSegment(const FVector& InStart, const FVector&
     Color = InColor;
     Thickness = InThickness;
 
-    // Spawn cylinder geometry immediately
     SpawnCylinderGeometry();
 }
 
 void ALineSegmentActor::SpawnCylinderGeometry()
 {
-    if (!GetWorld()) return;
+    if (!GetWorld() || !CylinderMesh) return;
 
-    // Calculate the direction and length
+    if (SegmentMeshActor && IsValid(SegmentMeshActor))
+    {
+        SegmentMeshActor->Destroy();
+        SegmentMeshActor = nullptr;
+    }
+
     FVector Direction = End - Start;
     float Length = Direction.Size();
     if (Length < KINDA_SMALL_NUMBER) return;
 
     Direction.Normalize();
 
-    // Calculate rotation to align cylinder along the line
-    FRotator Rotation = Direction.ToOrientationRotator();
+    // Midpoint of the line segment - cylinder pivot is at center
+    FVector MidPoint = (Start + End) * 0.5f;
 
-    // Spawn cylinder actor at this actor's location (which should be the midpoint)
+    // Align cylinder Z-axis with line direction
+    FRotator Rotation = FRotationMatrix::MakeFromZ(Direction).Rotator();
+
     FActorSpawnParameters Params;
     Params.Owner = this;
-    AStaticMeshActor* CylinderActor = GetWorld()->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), FTransform(Rotation, GetActorLocation()), Params);
+    AStaticMeshActor* CylinderActor = GetWorld()->SpawnActor<AStaticMeshActor>(
+        AStaticMeshActor::StaticClass(),
+        FTransform(Rotation, MidPoint),
+        Params
+    );
 
     if (CylinderActor && CylinderActor->GetStaticMeshComponent())
     {
-        // Set mobility to Movable so it can be attached to the chart actor
+        SegmentMeshActor = CylinderActor;
         CylinderActor->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
         CylinderActor->AttachToActor(this, FAttachmentTransformRules::KeepWorldTransform);
+        CylinderActor->GetStaticMeshComponent()->SetStaticMesh(CylinderMesh);
 
-        // Use cylinder mesh (loaded in constructor)
-        if (CylinderMesh)
-        {
-            CylinderActor->GetStaticMeshComponent()->SetStaticMesh(CylinderMesh);
-        }
-
-        // Scale: X/Y for thickness, Z for length
-        float ScaleFactor = Thickness / 50.0f; // Base cylinder radius is 50 units
-        CylinderActor->GetStaticMeshComponent()->SetWorldScale3D(FVector(ScaleFactor, ScaleFactor, Length / 200.0f)); // Base cylinder height is 200 units
+        // UE5 cylinder: 100 diameter (50 radius), 100 height (from -50 to +50 in Z)
+        float RadiusScale = Thickness / 100.0f;
+        float HeightScale = Length / 100.0f;
+        CylinderActor->GetStaticMeshComponent()->SetWorldScale3D(FVector(RadiusScale, RadiusScale, HeightScale));
         CylinderActor->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
-        // Apply color
-        if (UMaterialInterface* Mat = CylinderActor->GetStaticMeshComponent()->GetMaterial(0))
+        UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/M_Color"));
+        if (!BaseMat)
         {
-            UMaterialInstanceDynamic* DynMat = CylinderActor->GetStaticMeshComponent()->CreateDynamicMaterialInstance(0, Mat);
+            BaseMat = CylinderActor->GetStaticMeshComponent()->GetMaterial(0);
+        }
+        if (!BaseMat)
+        {
+            BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial"));
+        }
+        if (BaseMat)
+        {
+            CylinderActor->GetStaticMeshComponent()->SetMaterial(0, BaseMat);
+            UMaterialInstanceDynamic* DynMat = CylinderActor->GetStaticMeshComponent()->CreateDynamicMaterialInstance(0, BaseMat);
             if (DynMat)
             {
                 DynMat->SetVectorParameterValue(TEXT("BaseColor"), Color);
                 DynMat->SetVectorParameterValue(TEXT("Color"), Color);
-                DynMat->SetScalarParameterValue(TEXT("Opacity"), 1.0f);
-                DynMat->SetScalarParameterValue(TEXT("Metallic"), 0.0f);
-                DynMat->SetScalarParameterValue(TEXT("Roughness"), 0.8f);
             }
         }
     }
@@ -89,6 +103,15 @@ void ALineSegmentActor::SpawnCylinderGeometry()
 void ALineSegmentActor::BeginPlay()
 {
     Super::BeginPlay();
-    // Geometry is already spawned in InitializeSegment, no need for debug lines
 }
 
+void ALineSegmentActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    if (SegmentMeshActor && IsValid(SegmentMeshActor))
+    {
+        SegmentMeshActor->Destroy();
+        SegmentMeshActor = nullptr;
+    }
+
+    Super::EndPlay(EndPlayReason);
+}

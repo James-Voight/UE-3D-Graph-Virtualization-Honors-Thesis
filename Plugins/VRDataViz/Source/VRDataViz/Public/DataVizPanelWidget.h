@@ -53,6 +53,9 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "DataViz|Preview")
     bool IsVRMode() const;
+    
+    UFUNCTION(BlueprintCallable, Category = "DataViz|Input")
+    void HandleKeyboardInput();
 
 private:
     UPROPERTY() class APlacementManager* PlacementMgr;
@@ -62,6 +65,22 @@ private:
     UPROPERTY() bool bUseXYZPlacement = false;
     UPROPERTY() FRotator PreviewRotation = FRotator::ZeroRotator;
     UPROPERTY() float PreviewScale = 1.0f;
+    UPROPERTY() FVector PreviewScaleXYZ = FVector(1.0f);
+    UPROPERTY() bool bUniformScale = true;
+    UPROPERTY() float PreviewPointScale = 0.5f;
+    UPROPERTY() float PreviewTextScale = 1.0f;
+    UPROPERTY() FRotator LastPreviewRotation = FRotator::ZeroRotator;
+    UPROPERTY() FRotator LastPreviewActorRotation = FRotator::ZeroRotator;
+    UPROPERTY() FVector LastPreviewScaleXYZ = FVector(1.0f);
+    UPROPERTY() bool bPreviewGeometryDirty = false;
+    
+    // Keyboard shortcut state
+    UPROPERTY() bool bXAxisMode = false;
+    UPROPERTY() bool bYAxisMode = false;
+    UPROPERTY() bool bZAxisMode = false;
+    UPROPERTY() bool bGrabMode = false;
+    UPROPERTY() AActor* VisualGuideActor = nullptr;
+    UPROPERTY() bool bCancelRequested = false; // Flag to prevent confirmation after cancel
 
     // Runtime-created UMG controls
     UPROPERTY() class UComboBoxString* FileCombo;
@@ -78,6 +97,13 @@ private:
     UPROPERTY() class USlider* RotationPitchSlider;
     UPROPERTY() class USlider* RotationRollSlider;
     UPROPERTY() class USlider* ScaleSlider;
+    UPROPERTY() class USlider* ScaleXSlider;
+    UPROPERTY() class USlider* ScaleYSlider;
+    UPROPERTY() class USlider* ScaleZSlider;
+    UPROPERTY() class USlider* PointScaleSlider;
+    UPROPERTY() class USlider* TextScaleSlider;
+    UPROPERTY() class UWidget* PointScaleRow = nullptr;
+    UPROPERTY() class UButton* UniformScaleToggleBtn;
 
     UFUNCTION()
     void RefreshFiles();
@@ -99,8 +125,21 @@ private:
     void OnRotationRollChanged(float Value);
     UFUNCTION()
     void OnScaleChanged(float Value);
+    UFUNCTION()
+    void OnScaleXChanged(float Value);
+    UFUNCTION()
+    void OnScaleYChanged(float Value);
+    UFUNCTION()
+    void OnScaleZChanged(float Value);
+    UFUNCTION()
+    void OnPointScaleChanged(float Value);
+    UFUNCTION()
+    void OnTextScaleChanged(float Value);
+    UFUNCTION()
+    void OnUniformScaleToggle();
     FTransform BuildTransformFromInputs() const;
     void UpdatePreviewTransform();
     AActor* CreatePreviewChart();
+    void UpdateVisualGuide();
 };
 

@@ -5,6 +5,7 @@
 #include "Charts/ScatterActor.h"
 #include "Charts/LineGraphActor.h"
 #include "Charts/BarChartActor.h"
+#include "Charts/GridLineActor.h"
 #include "Kismet/GameplayStatics.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/VerticalBox.h"
@@ -18,9 +19,14 @@
 #include "Components/SizeBox.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Widgets/SWidget.h"
 #include "IXRTrackingSystem.h"
 #include "IHeadMountedDisplay.h"
 #include "HeadMountedDisplayTypes.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Input/Events.h"
+#include "InputCoreTypes.h"
+#include "EngineUtils.h"
 
 void UDataVizPanelWidget::ListCSVFiles(TArray<FString>& OutFilePaths, const FString& SubfolderName)
 {
@@ -52,6 +58,9 @@ void UDataVizPanelWidget::NativeConstruct()
 void UDataVizPanelWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
     Super::NativeTick(MyGeometry, InDeltaTime);
+    
+    // Handle keyboard input
+    HandleKeyboardInput();
     
     // Continuously update preview position while placement is active
     if (IsPlacementActive())
@@ -98,6 +107,12 @@ TSharedRef<SWidget> UDataVizPanelWidget::RebuildWidget()
     RotationPitchSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass());
     RotationRollSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass());
     ScaleSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass());
+    ScaleXSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass());
+    ScaleYSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass());
+    ScaleZSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass());
+    PointScaleSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass());
+    TextScaleSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass());
+    UniformScaleToggleBtn = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass());
 
     RotationYawSlider->SetMinValue(0.0f);
     RotationYawSlider->SetMaxValue(360.0f);
@@ -108,14 +123,34 @@ TSharedRef<SWidget> UDataVizPanelWidget::RebuildWidget()
     RotationRollSlider->SetMinValue(0.0f);
     RotationRollSlider->SetMaxValue(360.0f);
     RotationRollSlider->SetValue(0.0f);
-    ScaleSlider->SetMinValue(0.1f);
-    ScaleSlider->SetMaxValue(5.0f);
+    ScaleSlider->SetMinValue(0.01f);
+    ScaleSlider->SetMaxValue(100.0f);
     ScaleSlider->SetValue(1.0f);
+    ScaleXSlider->SetMinValue(0.01f);
+    ScaleXSlider->SetMaxValue(100.0f);
+    ScaleXSlider->SetValue(1.0f);
+    ScaleYSlider->SetMinValue(0.01f);
+    ScaleYSlider->SetMaxValue(100.0f);
+    ScaleYSlider->SetValue(1.0f);
+    ScaleZSlider->SetMinValue(0.01f);
+    ScaleZSlider->SetMaxValue(100.0f);
+    ScaleZSlider->SetValue(1.0f);
+    PointScaleSlider->SetMinValue(0.05f);
+    PointScaleSlider->SetMaxValue(5.0f);
+    PointScaleSlider->SetValue(PreviewPointScale);
+    TextScaleSlider->SetMinValue(0.1f);
+    TextScaleSlider->SetMaxValue(4.0f);
+    TextScaleSlider->SetValue(PreviewTextScale);
 
     RotationYawSlider->OnValueChanged.AddDynamic(this, &UDataVizPanelWidget::OnRotationYawChanged);
     RotationPitchSlider->OnValueChanged.AddDynamic(this, &UDataVizPanelWidget::OnRotationPitchChanged);
     RotationRollSlider->OnValueChanged.AddDynamic(this, &UDataVizPanelWidget::OnRotationRollChanged);
     ScaleSlider->OnValueChanged.AddDynamic(this, &UDataVizPanelWidget::OnScaleChanged);
+    ScaleXSlider->OnValueChanged.AddDynamic(this, &UDataVizPanelWidget::OnScaleXChanged);
+    ScaleYSlider->OnValueChanged.AddDynamic(this, &UDataVizPanelWidget::OnScaleYChanged);
+    ScaleZSlider->OnValueChanged.AddDynamic(this, &UDataVizPanelWidget::OnScaleZChanged);
+    PointScaleSlider->OnValueChanged.AddDynamic(this, &UDataVizPanelWidget::OnPointScaleChanged);
+    TextScaleSlider->OnValueChanged.AddDynamic(this, &UDataVizPanelWidget::OnTextScaleChanged);
 
     // --- File selection row ---
     UTextBlock* FileLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
@@ -148,7 +183,7 @@ TSharedRef<SWidget> UDataVizPanelWidget::RebuildWidget()
     MakeLabeledTextRow(TEXT("Z Position"), ZBox);
 
     // --- Rotation controls ---
-    auto MakeLabeledSliderRow = [this, VBox](const FString& Label, USlider* Slider)
+    auto MakeLabeledSliderRow = [this, VBox](const FString& Label, USlider* Slider) -> UHorizontalBox*
     {
         UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
         UTextBlock* LabelWidget = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
@@ -182,12 +217,25 @@ TSharedRef<SWidget> UDataVizPanelWidget::RebuildWidget()
         }
         
         VBox->AddChildToVerticalBox(Row);
+        return Row;
     };
 
     MakeLabeledSliderRow(TEXT("Rotation Yaw"), RotationYawSlider);
     MakeLabeledSliderRow(TEXT("Rotation Pitch"), RotationPitchSlider);
     MakeLabeledSliderRow(TEXT("Rotation Roll"), RotationRollSlider);
-    MakeLabeledSliderRow(TEXT("Scale"), ScaleSlider);
+    MakeLabeledSliderRow(TEXT("Scale (Uniform)"), ScaleSlider);
+    MakeLabeledSliderRow(TEXT("Scale X"), ScaleXSlider);
+    MakeLabeledSliderRow(TEXT("Scale Y"), ScaleYSlider);
+    MakeLabeledSliderRow(TEXT("Scale Z"), ScaleZSlider);
+    PointScaleRow = MakeLabeledSliderRow(TEXT("Point Scale"), PointScaleSlider);
+    MakeLabeledSliderRow(TEXT("Text Scale"), TextScaleSlider);
+    
+    // Uniform scale toggle button
+    UTextBlock* UniformToggleLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+    UniformToggleLabel->SetText(FText::FromString(TEXT("Uniform Scale: ON")));
+    UniformScaleToggleBtn->AddChild(UniformToggleLabel);
+    UniformScaleToggleBtn->OnClicked.AddDynamic(this, &UDataVizPanelWidget::OnUniformScaleToggle);
+    VBox->AddChildToVerticalBox(UniformScaleToggleBtn);
 
     // --- Buttons with text labels ---
     auto MakeLabeledButton = [this, VBox](const FString& Label, UButton*& OutButton)
@@ -211,6 +259,8 @@ TSharedRef<SWidget> UDataVizPanelWidget::RebuildWidget()
     ChartTypeCombo->AddOption(TEXT("Line"));
     ChartTypeCombo->AddOption(TEXT("Scatter"));
     ChartTypeCombo->OnSelectionChanged.AddDynamic(this, &UDataVizPanelWidget::OnChartTypeChanged);
+    ChartTypeCombo->SetSelectedOption(TEXT("Scatter"));
+    OnChartTypeChanged(TEXT("Scatter"), ESelectInfo::Direct);
 
     XBox->SetText(FText::FromString(TEXT("0")));
     YBox->SetText(FText::FromString(TEXT("0")));
@@ -246,7 +296,13 @@ void UDataVizPanelWidget::RefreshFiles()
 
 void UDataVizPanelWidget::OnChartTypeChanged(FString Selected, ESelectInfo::Type)
 {
-    // No-op placeholder for now
+    const bool bIsBar = (Selected == TEXT("Bar"));
+    const bool bIsLine = (Selected == TEXT("Line"));
+    const bool bIsScatter = (Selected == TEXT("Scatter"));
+    if (PointScaleRow)
+    {
+        PointScaleRow->SetVisibility((bIsLine || bIsScatter) ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+    }
 }
 
 void UDataVizPanelWidget::OnPlace()
@@ -336,26 +392,8 @@ void UDataVizPanelWidget::OnConfirm()
 
 void UDataVizPanelWidget::OnCancel()
 {
-    UE_LOG(LogTemp, Error, TEXT("OnCancel - Cancel Placement button clicked!"));
-    
-    // Set a flag to prevent HandlePlacementInput from confirming
-    // Cancel placement first
+    UE_LOG(LogTemp, Warning, TEXT("OnCancel - Cancel Placement button clicked!"));
     CancelPlacement();
-    
-    // Make absolutely sure preview is destroyed and placement is inactive
-    if (PreviewChart != nullptr)
-    {
-        UE_LOG(LogTemp, Error, TEXT("OnCancel - Force destroying PreviewChart"));
-        if (IsValid(PreviewChart))
-        {
-            PreviewChart->Destroy();
-        }
-        PreviewChart = nullptr;
-    }
-    
-    UE_LOG(LogTemp, Error, TEXT("OnCancel - CancelPlacement() called. PreviewChart is now: %s, IsPlacementActive: %d"), 
-        (PreviewChart == nullptr) ? TEXT("NULL") : TEXT("NOT NULL"),
-        IsPlacementActive() ? 1 : 0);
 }
 
 void UDataVizPanelWidget::OnRotationYawChanged(float Value)
@@ -387,7 +425,115 @@ void UDataVizPanelWidget::OnRotationRollChanged(float Value)
 
 void UDataVizPanelWidget::OnScaleChanged(float Value)
 {
-    PreviewScale = FMath::Clamp(Value, 0.1f, 10.0f); // Clamp to safe range
+    PreviewScale = Value; // No clamping - allow any scale
+    if (bUniformScale)
+    {
+        PreviewScaleXYZ = FVector(Value);
+        if (ScaleXSlider) ScaleXSlider->SetValue(Value);
+        if (ScaleYSlider) ScaleYSlider->SetValue(Value);
+        if (ScaleZSlider) ScaleZSlider->SetValue(Value);
+    }
+    if (IsPlacementActive())
+    {
+        UpdatePreviewTransform();
+    }
+}
+
+void UDataVizPanelWidget::OnScaleXChanged(float Value)
+{
+    PreviewScaleXYZ.X = Value;
+    if (bUniformScale)
+    {
+        PreviewScaleXYZ = FVector(Value);
+        PreviewScale = Value;
+        if (ScaleSlider) ScaleSlider->SetValue(Value);
+        if (ScaleYSlider) ScaleYSlider->SetValue(Value);
+        if (ScaleZSlider) ScaleZSlider->SetValue(Value);
+    }
+    if (IsPlacementActive())
+    {
+        UpdatePreviewTransform();
+    }
+}
+
+void UDataVizPanelWidget::OnScaleYChanged(float Value)
+{
+    PreviewScaleXYZ.Y = Value;
+    if (bUniformScale)
+    {
+        PreviewScaleXYZ = FVector(Value);
+        PreviewScale = Value;
+        if (ScaleSlider) ScaleSlider->SetValue(Value);
+        if (ScaleXSlider) ScaleXSlider->SetValue(Value);
+        if (ScaleZSlider) ScaleZSlider->SetValue(Value);
+    }
+    if (IsPlacementActive())
+    {
+        UpdatePreviewTransform();
+    }
+}
+
+void UDataVizPanelWidget::OnScaleZChanged(float Value)
+{
+    PreviewScaleXYZ.Z = Value;
+    if (bUniformScale)
+    {
+        PreviewScaleXYZ = FVector(Value);
+        PreviewScale = Value;
+        if (ScaleSlider) ScaleSlider->SetValue(Value);
+        if (ScaleXSlider) ScaleXSlider->SetValue(Value);
+        if (ScaleYSlider) ScaleYSlider->SetValue(Value);
+    }
+    if (IsPlacementActive())
+    {
+        UpdatePreviewTransform();
+    }
+}
+
+void UDataVizPanelWidget::OnPointScaleChanged(float Value)
+{
+    PreviewPointScale = Value;
+    bPreviewGeometryDirty = true;
+    if (IsPlacementActive())
+    {
+        UpdatePreviewTransform();
+    }
+}
+
+void UDataVizPanelWidget::OnTextScaleChanged(float Value)
+{
+    PreviewTextScale = Value;
+    bPreviewGeometryDirty = true;
+    if (IsPlacementActive())
+    {
+        UpdatePreviewTransform();
+    }
+}
+
+void UDataVizPanelWidget::OnUniformScaleToggle()
+{
+    bUniformScale = !bUniformScale;
+    if (UniformScaleToggleBtn)
+    {
+        TArray<UWidget*> Children = UniformScaleToggleBtn->GetAllChildren();
+        for (UWidget* Child : Children)
+        {
+            if (UTextBlock* TextBlock = Cast<UTextBlock>(Child))
+            {
+                TextBlock->SetText(FText::FromString(bUniformScale ? TEXT("Uniform Scale: ON") : TEXT("Uniform Scale: OFF")));
+                break;
+            }
+        }
+    }
+    if (bUniformScale)
+    {
+        // Sync all scales to the uniform value
+        float UniformVal = PreviewScale;
+        PreviewScaleXYZ = FVector(UniformVal);
+        if (ScaleXSlider) ScaleXSlider->SetValue(UniformVal);
+        if (ScaleYSlider) ScaleYSlider->SetValue(UniformVal);
+        if (ScaleZSlider) ScaleZSlider->SetValue(UniformVal);
+    }
     if (IsPlacementActive())
     {
         UpdatePreviewTransform();
@@ -440,13 +586,20 @@ void UDataVizPanelWidget::StartHoverPlacement()
     
     PendingFile = FilePath;
     PendingType = Type;
+    bCancelRequested = false;
+    bCancelRequested = false; // Reset cancel flag
     
-    // Create actual chart as preview
-    PreviewChart = CreatePreviewChart();
+    // Only create preview if one doesn't already exist
     if (!PreviewChart || !IsValid(PreviewChart))
     {
-        UE_LOG(LogTemp, Error, TEXT("StartHoverPlacement - Failed to create preview chart"));
-        return;
+        // Create actual chart as preview
+        PreviewChart = CreatePreviewChart();
+        if (!PreviewChart || !IsValid(PreviewChart))
+        {
+            UE_LOG(LogTemp, Error, TEXT("StartHoverPlacement - Failed to create preview chart"));
+            return;
+        }
+        bPreviewGeometryDirty = true;
     }
     
     // Initialize position
@@ -521,6 +674,7 @@ void UDataVizPanelWidget::StartXYZPlacement()
         UE_LOG(LogTemp, Error, TEXT("StartXYZPlacement - Failed to create preview chart"));
         return;
     }
+    bPreviewGeometryDirty = true;
     
     // Use XYZ coordinates directly
     const FTransform T = BuildTransformFromInputs();
@@ -534,7 +688,8 @@ void UDataVizPanelWidget::StartXYZPlacement()
 
 bool UDataVizPanelWidget::UpdateHoverFromView(float Distance)
 {
-    if (!PreviewChart || !IsValid(PreviewChart) || bUseXYZPlacement) return false;
+    // Only update if preview exists and is valid - don't create new ones
+    if (!PreviewChart || !IsValid(PreviewChart) || bUseXYZPlacement || bCancelRequested) return false;
     
     UWorld* World = GetWorld();
     if (!World || !PlacementMgr || !IsValid(PlacementMgr))
@@ -631,6 +786,13 @@ bool UDataVizPanelWidget::UpdateHoverFromVRController()
 
 bool UDataVizPanelWidget::ConfirmPlacement(EChartType ChartType, const FString& FilePath)
 {
+    // Don't confirm if cancel was requested
+    if (bCancelRequested)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ConfirmPlacement - Cancel was requested, aborting confirmation"));
+        return false;
+    }
+    
     if (!PreviewChart)
     {
         UE_LOG(LogTemp, Error, TEXT("ConfirmPlacement - No Preview chart"));
@@ -658,21 +820,43 @@ bool UDataVizPanelWidget::ConfirmPlacement(EChartType ChartType, const FString& 
         }
     }
     
-    // Clear preview state but keep the chart
+    // Mark the chart as persistent so it saves with the level
+    if (PreviewChart)
+    {
+#if WITH_EDITOR
+        PreviewChart->SetActorLabel(FString::Printf(TEXT("Chart_%s_%d"), ChartType == EChartType::Bar ? TEXT("Bar") : (ChartType == EChartType::Line ? TEXT("Line") : TEXT("Scatter")), FMath::RandRange(1000, 9999)));
+#endif
+        // Make sure it's marked for save - not editor-only
+        PreviewChart->bIsEditorOnlyActor = false;
+    }
+    
+    // Clear preview state but keep the chart (it's now the actual placed chart)
+    AActor* PlacedChart = PreviewChart;
     PreviewChart = nullptr;
     if (PlacementMgr) { PlacementMgr->Destroy(); PlacementMgr = nullptr; }
+    if (VisualGuideActor && IsValid(VisualGuideActor))
+    {
+        VisualGuideActor->Destroy();
+        VisualGuideActor = nullptr;
+    }
+    bXAxisMode = false;
+    bYAxisMode = false;
+    bZAxisMode = false;
+    bGrabMode = false;
+    bUseXYZPlacement = false;
+    bCancelRequested = false;
     
-    UE_LOG(LogTemp, Warning, TEXT("ConfirmPlacement - SUCCESS! Chart placed"));
+    UE_LOG(LogTemp, Warning, TEXT("ConfirmPlacement - SUCCESS! Chart placed: %s"), PlacedChart ? *PlacedChart->GetName() : TEXT("NULL"));
     return true;
 }
 
 void UDataVizPanelWidget::HandlePlacementInput()
 {
     // Called on keyboard click or VR trigger - same as Confirm
-    // BUT: Only confirm if placement is active AND preview chart exists
-    if (!IsPlacementActive())
+    // BUT: Only confirm if placement is active AND preview chart exists AND cancel was not requested
+    if (!IsPlacementActive() || bCancelRequested)
     {
-        UE_LOG(LogTemp, Log, TEXT("HandlePlacementInput - Placement not active, ignoring input"));
+        UE_LOG(LogTemp, Log, TEXT("HandlePlacementInput - Placement not active or cancel requested, ignoring input"));
         return;
     }
     
@@ -699,16 +883,54 @@ void UDataVizPanelWidget::CancelPlacement()
 {
     UE_LOG(LogTemp, Warning, TEXT("CancelPlacement - Starting cancellation"));
     
-    // Destroy preview chart if it exists
-    if (PreviewChart && IsValid(PreviewChart))
+    // Set cancel flag first to prevent any confirmations
+    bCancelRequested = true;
+    
+    // Destroy visual guide if it exists
+    if (VisualGuideActor && IsValid(VisualGuideActor))
     {
-        UE_LOG(LogTemp, Warning, TEXT("CancelPlacement - Destroying preview chart: %s"), *PreviewChart->GetName());
-        PreviewChart->Destroy();
-        PreviewChart = nullptr;
+        VisualGuideActor->Destroy();
+        VisualGuideActor = nullptr;
     }
-    else
+    
+    // Reset keyboard shortcut states
+    bXAxisMode = false;
+    bYAxisMode = false;
+    bZAxisMode = false;
+    bGrabMode = false;
+    
+    // Destroy preview chart if it exists - this is critical to prevent it from being placed
+    if (PreviewChart)
     {
-        UE_LOG(LogTemp, Warning, TEXT("CancelPlacement - PreviewChart was null or invalid"));
+        UE_LOG(LogTemp, Warning, TEXT("CancelPlacement - Destroying preview chart: %s"), IsValid(PreviewChart) ? *PreviewChart->GetName() : TEXT("INVALID"));
+        if (IsValid(PreviewChart))
+        {
+            if (UWorld* World = GetWorld())
+            {
+                for (TActorIterator<AActor> It(World); It; ++It)
+                {
+                    AActor* Candidate = *It;
+                    if (IsValid(Candidate) && Candidate->GetOwner() == PreviewChart)
+                    {
+                        Candidate->Destroy();
+                    }
+                }
+            }
+
+            TArray<AActor*> AttachedActors;
+            PreviewChart->GetAttachedActors(AttachedActors);
+            for (AActor* Attached : AttachedActors)
+            {
+                if (IsValid(Attached))
+                {
+                    Attached->Destroy();
+                }
+            }
+
+            // Force destroy immediately - mark for destruction
+            PreviewChart->Destroy();
+        }
+        PreviewChart = nullptr;
     }
     
     // Destroy placement manager if it exists
@@ -721,12 +943,13 @@ void UDataVizPanelWidget::CancelPlacement()
     
     // Clear pending file
     PendingFile.Empty();
+    bPreviewGeometryDirty = false;
     
-    // Double-check that preview is cleared
+    // Verify cancellation
     if (PreviewChart != nullptr)
     {
-        UE_LOG(LogTemp, Error, TEXT("CancelPlacement - WARNING: PreviewChart still exists after cancellation!"));
-        PreviewChart = nullptr; // Force clear
+        UE_LOG(LogTemp, Error, TEXT("CancelPlacement - WARNING: PreviewChart still exists after cancellation! Force clearing."));
+        PreviewChart = nullptr;
     }
     
     UE_LOG(LogTemp, Warning, TEXT("CancelPlacement - Cancellation complete. IsPlacementActive: %d"), IsPlacementActive() ? 1 : 0);
@@ -780,9 +1003,8 @@ AActor* UDataVizPanelWidget::CreatePreviewChart()
         }
     }
     
-    // Clamp scale to safe range
-    const float SafeScale = FMath::Clamp(PreviewScale, 0.1f, 10.0f);
-    FTransform InitialTransform(PreviewRotation, InitialLocation, FVector(SafeScale));
+    // Spawn unscaled/unrotated; graph actors will apply rotation/scale internally
+    FTransform InitialTransform(FRotator::ZeroRotator, InitialLocation, FVector::OneVector);
     
     // Spawn chart with safe parameters
     AActor* Chart = UChartSpawnLibrary::SpawnChartFromCSV(this, PendingType, Text, InitialTransform);
@@ -818,34 +1040,53 @@ void UDataVizPanelWidget::UpdatePreviewTransform()
         return;
     }
     
-    // Apply rotation from sliders
-    PreviewChart->SetActorRotation(PreviewRotation);
+    // Apply scale to the chart (no clamping - allow any scale)
+    FVector FinalScale = bUniformScale ? FVector(PreviewScale) : PreviewScaleXYZ;
+    PreviewChart->SetActorScale3D(FVector::OneVector);
     
-    // Apply uniform scale to the chart
-    const float SafeScale = FMath::Clamp(PreviewScale, 0.1f, 10.0f);
-    PreviewChart->SetActorScale3D(FVector(SafeScale));
-    
-    // Update chart-specific rotation properties
-    if (AScatterActor* Scatter = Cast<AScatterActor>(PreviewChart))
+    const FRotator CurrentActorRotation = PreviewChart->GetActorRotation();
+    const bool bScaleChanged = !FinalScale.Equals(LastPreviewScaleXYZ, KINDA_SMALL_NUMBER);
+    const bool bRotationChanged = !PreviewRotation.Equals(LastPreviewRotation, KINDA_SMALL_NUMBER) || !CurrentActorRotation.Equals(LastPreviewActorRotation, KINDA_SMALL_NUMBER);
+    bPreviewGeometryDirty = bPreviewGeometryDirty || bScaleChanged || bRotationChanged;
+
+    if (bPreviewGeometryDirty)
     {
-        if (IsValid(Scatter))
+        if (AScatterActor* Scatter = Cast<AScatterActor>(PreviewChart))
         {
-            Scatter->AdditionalRotation = PreviewRotation;
+            if (IsValid(Scatter))
+            {
+                Scatter->GraphScale = FinalScale * 100.0f; // Centimeters per data unit
+                Scatter->PointScale = PreviewPointScale;
+                Scatter->TextScale = PreviewTextScale;
+                Scatter->AdditionalRotation = PreviewRotation;
+                Scatter->Rebuild();
+            }
         }
-    }
-    else if (ALineGraphActor* Line = Cast<ALineGraphActor>(PreviewChart))
-    {
-        if (IsValid(Line))
+        else if (ALineGraphActor* Line = Cast<ALineGraphActor>(PreviewChart))
         {
-            Line->AdditionalRotation = PreviewRotation;
+            if (IsValid(Line))
+            {
+                Line->GraphScale = FinalScale * 100.0f; // Centimeters per data unit
+                Line->PointScale = PreviewPointScale;
+                Line->TextScale = PreviewTextScale;
+                Line->AdditionalRotation = PreviewRotation;
+                Line->Rebuild();
+            }
         }
-    }
-    else if (ABarChartActor* Bar = Cast<ABarChartActor>(PreviewChart))
-    {
-        if (IsValid(Bar))
+        else if (ABarChartActor* Bar = Cast<ABarChartActor>(PreviewChart))
         {
-            Bar->AdditionalRotation = PreviewRotation;
+            if (IsValid(Bar))
+            {
+                Bar->GraphScale = FinalScale;
+                Bar->TextScale = PreviewTextScale;
+                Bar->AdditionalRotation = PreviewRotation;
+                Bar->Rebuild();
+            }
         }
+        LastPreviewRotation = PreviewRotation;
+        LastPreviewActorRotation = CurrentActorRotation;
+        LastPreviewScaleXYZ = FinalScale;
+        bPreviewGeometryDirty = false;
     }
 }
 
@@ -861,3 +1102,139 @@ void UDataVizPanelWidget::SetPreviewScale(float Scale)
     UpdatePreviewTransform();
 }
 
+void UDataVizPanelWidget::HandleKeyboardInput()
+{
+    if (!GetWorld()) return;
+    
+    APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
+    if (!PC) return;
+    
+    // Check for key presses using FKey
+    bool bXPressed = PC->WasInputKeyJustPressed(FKey(TEXT("X")));
+    bool bYPressed = PC->WasInputKeyJustPressed(FKey(TEXT("Y")));
+    bool bZPressed = PC->WasInputKeyJustPressed(FKey(TEXT("Z")));
+    bool bGPressed = PC->WasInputKeyJustPressed(FKey(TEXT("G")));
+    bool bRPressed = PC->WasInputKeyJustPressed(FKey(TEXT("R")));
+    bool bEPressed = PC->WasInputKeyJustPressed(FKey(TEXT("E")));
+    bool bQPressed = PC->WasInputKeyJustPressed(FKey(TEXT("Q")));
+    
+    // Handle axis mode toggles
+    if (bXPressed && IsPlacementActive())
+    {
+        bXAxisMode = !bXAxisMode;
+        bYAxisMode = false;
+        bZAxisMode = false;
+        bGrabMode = false;
+        UpdateVisualGuide();
+    }
+    if (bYPressed && IsPlacementActive())
+    {
+        bYAxisMode = !bYAxisMode;
+        bXAxisMode = false;
+        bZAxisMode = false;
+        bGrabMode = false;
+        UpdateVisualGuide();
+    }
+    if (bZPressed && IsPlacementActive())
+    {
+        bZAxisMode = !bZAxisMode;
+        bXAxisMode = false;
+        bYAxisMode = false;
+        bGrabMode = false;
+        UpdateVisualGuide();
+    }
+    if (bGPressed && IsPlacementActive() && (bXAxisMode || bYAxisMode || bZAxisMode))
+    {
+        bGrabMode = !bGrabMode;
+        if (bGrabMode)
+        {
+            // Enter grab mode - mouse movement will move the graph
+            PC->bShowMouseCursor = true;
+            PC->bEnableClickEvents = true;
+            PC->bEnableMouseOverEvents = true;
+        }
+        else
+        {
+            UpdateVisualGuide();
+        }
+    }
+    
+    // Handle rotation shortcuts (R for roll, E for pitch, Q for yaw)
+    if (bRPressed && IsPlacementActive())
+    {
+        // Toggle roll rotation mode
+    }
+    if (bEPressed && IsPlacementActive())
+    {
+        // Toggle pitch rotation mode
+    }
+    if (bQPressed && IsPlacementActive())
+    {
+        // Toggle yaw rotation mode
+    }
+    
+    // Handle grab mode mouse movement
+    if (bGrabMode && IsPlacementActive() && PreviewChart)
+    {
+        float MouseDeltaX, MouseDeltaY;
+        PC->GetInputMouseDelta(MouseDeltaX, MouseDeltaY);
+        
+        float MoveSpeed = 10.0f;
+        FVector MoveDelta = FVector::ZeroVector;
+        if (bXAxisMode) MoveDelta = FVector(MouseDeltaX * MoveSpeed, 0, 0);
+        else if (bYAxisMode) MoveDelta = FVector(0, MouseDeltaX * MoveSpeed, 0);
+        else if (bZAxisMode) MoveDelta = FVector(0, 0, MouseDeltaY * MoveSpeed);
+        
+        if (MoveDelta.SizeSquared() > 0.001f)
+        {
+            PreviewChart->AddActorWorldOffset(MoveDelta);
+            UpdatePreviewTransform();
+        }
+    }
+}
+
+void UDataVizPanelWidget::UpdateVisualGuide()
+{
+    if (!GetWorld() || !IsPlacementActive() || !PreviewChart) return;
+    
+    // Destroy existing visual guide
+    if (VisualGuideActor && IsValid(VisualGuideActor))
+    {
+        VisualGuideActor->Destroy();
+        VisualGuideActor = nullptr;
+    }
+    
+    // Create new visual guide based on active axis mode
+    if (bXAxisMode || bYAxisMode || bZAxisMode)
+    {
+        FVector GuideStart = PreviewChart->GetActorLocation();
+        FVector GuideEnd = GuideStart;
+        FLinearColor GuideColor = FLinearColor::Red;
+        
+        if (bXAxisMode)
+        {
+            GuideEnd = GuideStart + FVector(5000.0f, 0, 0);
+            GuideColor = FLinearColor::Red;
+        }
+        else if (bYAxisMode)
+        {
+            GuideEnd = GuideStart + FVector(0, 5000.0f, 0);
+            GuideColor = FLinearColor::Green;
+        }
+        else if (bZAxisMode)
+        {
+            GuideEnd = GuideStart + FVector(0, 0, 5000.0f);
+            GuideColor = FLinearColor::Blue;
+        }
+        
+        // Spawn a visual guide line
+        FActorSpawnParameters Params;
+        Params.Owner = PreviewChart;
+        if (AGridLineActor* Guide = GetWorld()->SpawnActor<AGridLineActor>(AGridLineActor::StaticClass(), FTransform(GuideStart), Params))
+        {
+            Guide->AttachToActor(PreviewChart, FAttachmentTransformRules::KeepWorldTransform);
+            Guide->InitializeLine(GuideStart, GuideEnd, GuideColor, 5.0f);
+            VisualGuideActor = Guide;
+        }
+    }
+}

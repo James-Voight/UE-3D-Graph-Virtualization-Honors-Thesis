@@ -14,9 +14,12 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Chart")
     void InitializeTick(const FVector& InWorldLocation, const FString& InLabel, const FRotator& InTextRotation = FRotator::ZeroRotator);
+    UFUNCTION(BlueprintCallable, Category = "Chart")
+    void SetFaceCamera(bool bInFaceCamera) { bFaceCamera = bInFaceCamera; }
 
 protected:
     virtual void BeginPlay() override;
+    virtual void Tick(float DeltaSeconds) override;
 
 private:
     UPROPERTY()
@@ -24,5 +27,7 @@ private:
 
     UPROPERTY()
     class UTextRenderComponent* Text;
+    UPROPERTY()
+    bool bFaceCamera = true;
 };
 
